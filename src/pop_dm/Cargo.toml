@@ -1,0 +1,7 @@
+[package]
+name = "pop_dm"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+pop_dm_lib = { path="../pop_dm_lib" }

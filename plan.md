@@ -1,4 +1,4 @@
-# Learning Plan: Build a Linux Wayland Display Manager in C++
+# Learning Plan: Build a Text-Based Linux Display Manager in Rust
 
 ## Key Clarification
 
@@ -7,33 +7,31 @@ A Linux display manager is not the same thing as a Wayland compositor.
 A display manager mainly does this:
 
 1. Starts at boot.
-2. Shows a login UI, called a greeter.
+2. Shows a login interface, called a greeter.
 3. Authenticates the user with PAM.
-4. Creates a user session through `systemd-logind` or seat management.
+4. Opens a user session through PAM and `systemd-logind`.
 5. Starts the selected desktop/session, such as Sway, Hyprland, GNOME, KDE, etc.
+6. Cleans up after logout and returns to the login prompt.
 
-For Wayland, the hard part is that the greeter itself needs somewhere to render. That means either:
-
-1. Run a text greeter on the TTY first.
-2. Run a graphical greeter inside an existing small compositor like `cage`.
-3. Write your own Wayland compositor for the greeter, which is much harder.
+For your project, the greeter will be text-based and run on a TTY. That means you do not need to write a Wayland compositor or graphical greeter first.
 
 Recommended path:
 
-> Build a minimal text-based display manager first, then add Wayland session launching, then later build a graphical Wayland greeter.
+> Build a secure, boring, text-based Rust display manager that authenticates with PAM, discovers Wayland sessions, launches one, waits for it to exit, then returns to the prompt.
 
-## Phase 0: Foundations
+## Phase 0: Rust and Linux Foundations
 
 Learn these before writing the display manager:
 
-1. C++ basics for systems programming:
-   - RAII
-   - file descriptors
-   - `fork`, `exec`, `waitpid`
-   - signals
-   - environment variables
-   - privilege dropping
-   - error handling
+1. Rust basics for systems programming:
+   - ownership and borrowing
+   - `Result` and error propagation
+   - lifetimes at a practical level
+   - modules and crates
+   - `Drop` for cleanup
+   - `std::process::Command`
+   - `std::os::unix`
+   - safe wrappers around unsafe Unix calls
 
 2. Linux process/session concepts:
    - users and groups
@@ -43,28 +41,45 @@ Learn these before writing the display manager:
    - environment variables
    - `/etc/passwd`, `/etc/shadow`
    - system services
+   - file descriptors
+   - signals
 
-3. Build tooling:
-   - CMake or Meson
-   - compiler warnings
-   - sanitizers
+3. Rust tooling:
+   - Cargo
+   - `rustfmt`
+   - `clippy`
+   - `cargo test`
+   - `cargo audit`
    - `pkg-config`
+   - linking against system libraries such as PAM
+
+Suggested crates to investigate:
+
+1. `nix` for Unix process, user, signal, and terminal APIs.
+2. `users` or `uzers` for user/group lookup.
+3. `pam` or `pam-client` for PAM integration.
+4. `rpassword` for hidden password input.
+5. `rust-ini` or `freedesktop-desktop-entry` for parsing `.desktop` files.
+6. `toml` and `serde` for later configuration.
+7. `tracing` or `log` for structured logging.
 
 Suggested mini-projects:
 
-1. Write a C++ program that runs another command with `fork` + `exec`.
-2. Write a program that drops from root to another user using `setuid`/`setgid`.
-3. Write a program that starts a child process and correctly handles signals.
+1. Write a Rust program that runs another command with `Command`.
+2. Write a Rust program that looks up a user and prints their UID, GID, home, and shell.
+3. Write a Rust program that drops from root to another user using `setgid`, `initgroups`, and `setuid`.
+4. Write a Rust program that starts a child process and forwards/handles signals.
+5. Write a tiny TTY prompt that hides password input.
 
 ## Phase 1: Understand Display Managers
 
 Study existing projects, but do not copy them directly:
 
 1. `greetd`
-2. `ly`
-3. `sddm`
-4. `lightdm`
-5. `tuigreet`
+2. `tuigreet`
+3. `ly`
+4. `sddm`
+5. `lightdm`
 
 Focus on these questions:
 
@@ -75,6 +90,7 @@ Focus on these questions:
 5. How is the session selected?
 6. How does it start Wayland sessions?
 7. How does it clean up after logout?
+8. How does it avoid leaking privileged state into the user session?
 
 Important files/specs to learn:
 
@@ -84,13 +100,46 @@ Important files/specs to learn:
 4. systemd service units
 5. Desktop Entry Specification
 
-## Phase 2: Build a Minimal TTY Login Manager
+## Phase 2: Project Shape
+
+Start with a single Rust binary, then split modules as the code becomes real.
+
+Suggested structure:
+
+```txt
+popdm/
+  Cargo.toml
+  src/
+    main.rs
+    auth.rs
+    session.rs
+    desktop_entry.rs
+    tty.rs
+    user.rs
+    config.rs
+    error.rs
+```
+
+Initial responsibilities:
+
+1. `main.rs`: login loop and top-level control flow.
+2. `auth.rs`: PAM authentication and session open/close.
+3. `session.rs`: launching and waiting for the user session.
+4. `desktop_entry.rs`: discovering Wayland sessions.
+5. `tty.rs`: prompt, password input, terminal cleanup.
+6. `user.rs`: UID/GID/home/shell lookup.
+7. `config.rs`: later config loading.
+8. `error.rs`: shared error type if needed.
+
+Keep the first version small. A display manager is security-sensitive, so boring code is good code.
+
+## Phase 3: Build a Minimal TTY Login Manager
 
 Goal: a simple text-mode display manager.
 
 Features:
 
-1. Runs from a terminal or TTY.
+1. Runs manually from a terminal or TTY.
 2. Prompts for username.
 3. Prompts for password.
 4. Authenticates with PAM.
@@ -102,22 +151,23 @@ sway
 
 Concepts to learn:
 
-1. PAM conversations
+1. PAM conversations from Rust
 2. hiding password input
 3. launching child processes
 4. setting `HOME`, `USER`, `LOGNAME`, `SHELL`
-5. switching UID/GID
-6. waiting for the session to exit
-
-At this point, do not worry about graphics.
+5. setting `PATH` conservatively
+6. initializing supplementary groups
+7. switching GID/UID
+8. waiting for the session to exit
+9. returning to the login prompt
 
 First milestone:
 
-> Boot into a TTY, log in through your program, and launch `sway`.
+> Boot into a TTY, log in through your Rust program, and launch `sway`.
 
 Test this in a VM, not on your main system.
 
-## Phase 3: PAM Properly
+## Phase 4: PAM Properly
 
 PAM is central to a real display manager.
 
@@ -130,6 +180,7 @@ Learn:
 5. `pam_close_session`
 6. PAM conversation callbacks
 7. PAM environment variables
+8. `pam_systemd`
 
 Important rule:
 
@@ -150,7 +201,14 @@ Study the PAM configs used by:
 /etc/pam.d/greetd
 ```
 
-## Phase 4: Session Discovery
+Rust-specific notes:
+
+1. Prefer a maintained PAM crate if it handles the conversation model cleanly.
+2. If you need direct FFI, isolate unsafe PAM calls in `auth.rs`.
+3. Make PAM session lifetime explicit so `pam_close_session` runs even if the child exits badly.
+4. Do not keep password strings around longer than needed.
+
+## Phase 5: Session Discovery
 
 Instead of hardcoding `sway`, teach your display manager to discover installed sessions.
 
@@ -161,7 +219,7 @@ Read:
 /usr/share/xsessions/*.desktop
 ```
 
-For Wayland, start with only:
+For your first target, support only:
 
 ```txt
 /usr/share/wayland-sessions/*.desktop
@@ -179,13 +237,13 @@ You need to parse:
 
 Milestone:
 
-> Show a list of installed Wayland sessions and allow the user to select one.
+> Show a numbered list of installed Wayland sessions and allow the user to select one.
 
 Be careful with `Exec`.
 
-Do not pass it through a shell unless you intentionally support shell parsing. Prefer tokenizing it carefully or initially support only simple commands.
+Do not pass it through a shell unless you intentionally support shell parsing. Prefer a Desktop Entry parser crate or initially support only simple commands. For the first version, it is acceptable to reject complex `Exec` lines and print a clear error.
 
-## Phase 5: systemd-logind and Seats
+## Phase 6: systemd-logind and Seats
 
 A proper display manager should integrate with seat/session management.
 
@@ -221,7 +279,7 @@ Milestone:
 
 > After login, `loginctl` shows a proper user session.
 
-## Phase 6: Wayland Session Launching
+## Phase 7: Wayland Session Launching
 
 For Wayland sessions, your display manager should set the right environment.
 
@@ -246,9 +304,9 @@ For many sessions, `pam_systemd` and the launched desktop handle most of this.
 
 Milestone:
 
-> Your display manager can launch at least Sway, Hyprland, or another Wayland compositor from a clean boot.
+> Your Rust display manager can launch at least Sway, Hyprland, or another Wayland compositor from a clean boot.
 
-## Phase 7: Turn It Into a Real Service
+## Phase 8: Turn It Into a Real Service
 
 Create a systemd service only after the program works manually.
 
@@ -272,50 +330,9 @@ multi-user.target
 
 Milestone:
 
-> The machine boots into your display manager automatically.
+> The machine boots into your text-based display manager automatically.
 
 Test this in a VM.
-
-## Phase 8: Graphical Greeter Options
-
-Once the text version works, decide how graphical you want to go.
-
-Option A: Use an existing compositor for the greeter.
-
-Example architecture:
-
-```txt
-popdm daemon
-  -> starts cage/labwc/tinywl-like compositor
-      -> starts popdm-greeter Wayland client
-```
-
-Pros:
-
-1. Much easier.
-2. You can write the greeter with Qt, GTK, SDL, or another toolkit.
-3. You avoid writing a compositor early.
-
-Cons:
-
-1. Not completely from scratch.
-
-Option B: Write your own minimal Wayland compositor.
-
-Pros:
-
-1. Deep learning.
-2. Full control.
-
-Cons:
-
-1. Much harder.
-2. Requires learning `wlroots`, DRM/KMS, input, rendering, seats, outputs.
-3. `wlroots` is C-first, so C++ integration needs care.
-
-Recommended path:
-
-> Use `cage` or another minimal compositor first. Write your own compositor later as a separate learning project.
 
 ## Phase 9: Security Hardening
 
@@ -327,23 +344,28 @@ Learn and implement:
 2. sanitize environment variables
 3. avoid shell injection
 4. drop privileges as early as possible
-5. separate daemon and greeter processes
-6. keep root-owned code minimal
-7. handle failed logins safely
-8. rate-limit login attempts
-9. lock down config file permissions
-10. close unnecessary file descriptors
-11. handle signals cleanly
-12. ensure sessions are cleaned up
+5. keep root-owned code minimal
+6. handle failed logins safely
+7. rate-limit login attempts
+8. lock down config file permissions
+9. close unnecessary file descriptors
+10. handle signals cleanly
+11. ensure sessions are cleaned up
+12. make unsafe Rust blocks tiny and documented
+13. avoid panics in privileged control flow
+14. test error paths, not only successful login
 
 Suggested architecture eventually:
 
 ```txt
-root daemon
+root popdm process
   -> authenticates using PAM
-  -> manages sessions
-  -> starts unprivileged greeter
-  -> starts user session after login
+  -> opens PAM session
+  -> discovers selected session
+  -> forks/execs user session with dropped privileges
+  -> waits for session exit
+  -> closes PAM session
+  -> returns to text login prompt
 ```
 
 ## Phase 10: Configuration
@@ -352,40 +374,56 @@ Add a simple config format only after the core works.
 
 Possible config options:
 
-```txt
-default_session=sway
-default_user=
-greeter_command=
-session_dirs=/usr/share/wayland-sessions
-log_file=
-tty=1
+```toml
+default_session = "sway"
+default_user = ""
+session_dirs = ["/usr/share/wayland-sessions"]
+tty = 1
+failed_login_delay_seconds = 2
 ```
 
-Use something simple:
+Use TOML with `serde` once you need config. Avoid making configuration complicated early.
 
-1. INI
-2. TOML
-3. plain key-value
+## Phase 11: Tests and Development Safety
 
-Avoid making configuration complicated early.
+Some parts of a display manager are hard to test automatically, but still test what you can.
 
-## Phase 11: Polish
+Good test targets:
+
+1. `.desktop` parsing
+2. `Exec` tokenization/rejection
+3. config parsing
+4. user-facing selection logic
+5. environment construction
+6. failed-login delay behavior
+
+Manual test matrix:
+
+1. wrong password
+2. nonexistent user
+3. locked user
+4. session command missing
+5. session exits normally
+6. session crashes
+7. repeated login/logout
+8. boot into VM service mode
+
+Use a VM snapshot before testing service integration.
+
+## Phase 12: Polish
 
 Later features:
 
 1. user list
 2. session picker
-3. reboot/shutdown buttons
+3. reboot/shutdown commands
 4. keyboard layout selection
-5. HiDPI support
-6. multi-monitor support
-7. accessibility
-8. theming
-9. failed-login delay
-10. automatic login
-11. user avatars
-12. logging
-13. packaging
+5. failed-login delay
+6. automatic login
+7. logging
+8. packaging
+9. man page
+10. distro-specific install notes
 
 Do not start here.
 
@@ -393,14 +431,13 @@ Do not start here.
 
 A realistic path:
 
-1. Weeks 1-2: Linux process, users, TTY, C++ process management.
+1. Weeks 1-2: Rust, Linux process basics, users, TTYs, signals.
 2. Weeks 3-4: PAM authentication prototype.
 3. Weeks 5-6: launch a fixed Wayland session from TTY.
 4. Weeks 7-8: session discovery from `.desktop` files.
-5. Weeks 9-10: systemd service integration.
+5. Weeks 9-10: systemd service integration in a VM.
 6. Weeks 11-12: cleanup, logging, config, reliability.
-7. Weeks 13-16: graphical greeter using an existing compositor.
-8. Later: write your own minimal compositor if you still want the deepest Wayland path.
+7. Later: optional graphical greeter or compositor work as a separate project.
 
 ## Recommended First Milestones
 
@@ -414,33 +451,35 @@ Build in this exact order:
 6. It returns to the login prompt.
 7. It lists installed Wayland sessions.
 8. It launches the selected session.
-9. It works as a systemd service.
-10. It gets a graphical greeter.
+9. `loginctl` shows a real user session.
+10. It works as a systemd service in a VM.
 
 ## Resources
 
 Start with:
 
-1. Arch Wiki: Display Manager
-2. Arch Wiki: Sway
-3. Arch Wiki: systemd
-4. Arch Wiki: PAM
-5. `man pam`
-6. `man pam_start`
-7. `man pam_open_session`
-8. `man systemd.service`
-9. `man loginctl`
-10. `man setuid`
-11. `man fork`
-12. `man execve`
-13. The Wayland Book: https://wayland-book.com/
-14. Desktop Entry Specification: https://specifications.freedesktop.org/desktop-entry-spec/latest/
-15. `greetd` source code
-16. `ly` source code
-17. `sddm` source code
+1. The Rust Book: https://doc.rust-lang.org/book/
+2. Rust `std::process::Command`: https://doc.rust-lang.org/std/process/struct.Command.html
+3. Rust `std::os::unix`: https://doc.rust-lang.org/std/os/unix/
+4. `nix` crate docs: https://docs.rs/nix/
+5. Arch Wiki: Display Manager
+6. Arch Wiki: Sway
+7. Arch Wiki: systemd
+8. Arch Wiki: PAM
+9. `man pam`
+10. `man pam_start`
+11. `man pam_open_session`
+12. `man systemd.service`
+13. `man loginctl`
+14. `man setuid`
+15. `man execve`
+16. Desktop Entry Specification: https://specifications.freedesktop.org/desktop-entry-spec/latest/
+17. `greetd` source code
+18. `tuigreet` source code
+19. `ly` source code
 
 ## Strong Recommendation
 
 Do not start by writing a Wayland compositor.
 
-Start by writing a secure, boring, text-based display manager that can authenticate with PAM and launch Sway. Once that works, you will understand the real job of a display manager. Then build the graphical Wayland greeter on top.
+Start by writing a secure Rust text-based display manager that can authenticate with PAM and launch Sway. Once that works, you will understand the real job of a display manager. A graphical Wayland greeter can be a later project, not the foundation.

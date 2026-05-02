@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "pop_dm",
+    "pop_dm_lib",
+]
+resolver = "3"
