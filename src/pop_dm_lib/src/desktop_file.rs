@@ -1,5 +1,5 @@
-use std::path::PathBuf;
 use crate::error::Result;
+use std::path::PathBuf;
 
 pub struct DesktopFile {
     pub name: String,
