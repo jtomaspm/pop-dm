@@ -5,3 +5,4 @@ edition = "2024"
 
 [dependencies]
 pop_dm_lib = { path="../pop_dm_lib" }
+rpassword = "7.5.2"
