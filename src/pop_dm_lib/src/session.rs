@@ -19,10 +19,8 @@ pub struct SessionExit {
 }
 
 pub fn run_session(command: &SessionCommand) -> Result<ExitStatus> {
-    Ok(
-        Command::new(&command.program)
-            .args(&command.args)
-            .spawn()?
-            .wait()?   
-    )
+    Ok(Command::new(&command.program)
+        .args(&command.args)
+        .spawn()?
+        .wait()?)
 }

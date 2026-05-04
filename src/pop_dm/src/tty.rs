@@ -1,6 +1,6 @@
 use pop_dm_lib::{PopDMLibError, Result};
-use rpassword::{ConfigBuilder};
-use std::{io::{self, Write}};
+use rpassword::ConfigBuilder;
+use std::io::{self, Write};
 
 pub fn print_logo() {
     println!("Welcome to pop_dm!");
@@ -15,8 +15,12 @@ pub fn prompt_line(label: &str) -> Result<String> {
     return Ok(input.trim().to_string());
 }
 
-pub fn prompt_password(label: &str) -> Result<String> {
-    let config = ConfigBuilder::new().password_feedback_mask('*').build();
+pub fn prompt_password(label: &str, feedback: bool) -> Result<String> {
+    let config = if feedback {
+        ConfigBuilder::new().password_feedback_mask('*').build()
+    } else {
+        ConfigBuilder::new().build()
+    };
     return match rpassword::prompt_password_with_config(label, config) {
         Ok(res) => Ok(res),
         Err(err) => Err(PopDMLibError::Io(err)),

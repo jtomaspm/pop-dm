@@ -8,6 +8,8 @@ pub struct Config {
     pub failed_login_delay_seconds: u64,
     pub session_command: String,
     pub session_command_args: Vec<String>,
+    pub password_feedback: bool,
+    pub default_user: Option<String>,
 }
 
 impl Default for Config {
@@ -19,6 +21,8 @@ impl Default for Config {
             failed_login_delay_seconds: 2,
             session_command: "/usr/bin/niri".to_string(),
             session_command_args: vec![],
+            password_feedback: true,
+            default_user: None,
         }
     }
 }

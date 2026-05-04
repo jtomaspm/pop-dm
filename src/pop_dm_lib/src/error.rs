@@ -13,6 +13,9 @@ pub enum PopDMLibError {
     #[error("auth failed: {0}")]
     AuthFailed(String),
 
+    #[error("pam auth failed: {0}")]
+    PamAuth(#[from] pam_client::Error),
+
     #[error("invalid session: {0}")]
     InvalidSession(String),
 }
